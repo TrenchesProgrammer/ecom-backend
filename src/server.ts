@@ -1,6 +1,7 @@
 import express from 'express';
 // import userRoute from './routes/user.routes'
 import productRoute from './routes/productRoutes'
+import cartRoute from './routes/cartRoutes'
 
 const app = express()
 const PORT = process.env.PORT || "4040"
@@ -10,5 +11,6 @@ app.listen(PORT, ()=>{
 app.use(express.json())
 // app.use("/user", userRoute)
 app.use("/", productRoute)
+app.use("/", cartRoute)
 export default app;
 
