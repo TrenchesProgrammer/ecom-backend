@@ -9,7 +9,7 @@ export const getCart = async (req: Request, res: Response) => {
       cart: {
         sessionId: userToken,
       },
-    },
+    },include:{product:true}
   });
 
   return res.json(cart);
@@ -22,8 +22,19 @@ export const addToCart = async (req: Request, res: Response) => {
     update: {},
     create: { sessionId: userToken },
   });
-  const cartItem = await prisma.cartItem.create({
-    data: {
+  const cartItem = await prisma.cartItem.upsert({
+    where: {
+      cartId_productId: {
+        cartId: userCart.id,
+        productId,
+      },
+    },
+    update: {
+      quantity: {
+        increment: quantity,
+      },
+    },
+    create: {
       cartId: userCart.id,
       productId: productId,
       quantity,
@@ -36,10 +47,52 @@ export const addToCart = async (req: Request, res: Response) => {
     },
   });
 };
-export const updateCart = async (req:Request, res:Response) => {
+export const updateCart = async (req: Request, res: Response) => {
   const { productId, quantity, userToken } = req.body;
 
-  
+  try {
+    // 1. Find the parent Cart ID using the session token
+    const cart = await prisma.cart.findUnique({
+      where: { sessionId: userToken },
+    });
+
+    if (!cart) {
+      return res.status(404).json({ error: "Cart not found" });
+    }
+
+    // 2. The Zero-Quantity Check (Delete the item)
+    if (quantity <= 0) {
+      await prisma.cartItem.delete({
+        where: {
+          cartId_productId: {
+            cartId: cart.id,
+            productId: productId,
+          },
+        },
+      });
+      return res.status(200).json({ success: true, message: "Item removed" });
+    }
+
+    // 3. Update to the exact new quantity
+    const updatedItem = await prisma.cartItem.update({
+      where: {
+        cartId_productId: {
+          cartId: cart.id,
+          productId: productId,
+        },
+      },
+      data: {
+        quantity: quantity, // Overwrites the old quantity with the exact new one
+      },
+    });
+
+    return res.status(200).json({ success: true, data: updatedItem });
+
+  } catch (error) {
+    // Prisma throws an error if you try to update/delete a record that doesn't exist
+    console.error("Cart update failed:", error);
+    return res.status(500).json({ error: "Failed to update cart item" });
+  }
 };
 export const checkout = async (req: Request, res: Response) => {
   const { userToken, email } = req.body;
@@ -104,7 +157,6 @@ export const checkout = async (req: Request, res: Response) => {
           },
         });
       }
-
       // 6. Delete the Cart (which cascades and deletes all CartItems)
       await tx.cart.delete({
         where: { id: cart.id },
