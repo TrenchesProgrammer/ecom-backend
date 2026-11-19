@@ -1,11 +1,18 @@
-import express from 'express'
-import { addToCart, checkout, getCart, updateCart } from '../controllers/cartController'
-import { buyLimit } from '../middleware/buyLimit'
-const router = express.Router()
+import express from "express";
+import {
+  addToCart,
+  checkout,
+  getCart,
+  updateCart,
+} from "../controllers/cartController";
+import { buyLimit } from "../middleware/buyLimit";
+import { idempotency } from "../middleware/idempotency";
 
-router.get("/cart", buyLimit, getCart)
-router.post("/cart",  buyLimit, addToCart)
-router.put("/cart",  buyLimit, updateCart)
-router.post("/checkout",  buyLimit, checkout)
+const router = express.Router();
 
-export default router
+router.get("/cart", buyLimit, getCart);
+router.post("/cart", buyLimit, idempotency(), addToCart);
+router.put("/cart", buyLimit, updateCart);
+router.post("/checkout", buyLimit, idempotency(), checkout);
+
+export default router;

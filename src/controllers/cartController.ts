@@ -1,57 +1,97 @@
 import { Request, Response } from "express";
 import { prisma } from "../config/db";
+import { Prisma } from "../generated/prisma/client";
 
 export const getCart = async (req: Request, res: Response) => {
   const { userToken } = req.body;
 
-  const cart = await prisma.cartItem.findMany({
-    where: {
-      cart: {
-        sessionId: userToken,
-      },
-    },include:{product:true}
-  });
+  if (!userToken) {
+    return res.status(400).json({ error: "userToken is required" });
+  }
 
-  return res.json(cart);
+  try {
+    const cart = await prisma.cartItem.findMany({
+      where: {
+        cart: {
+          sessionId: userToken,
+        },
+      },
+      include: { product: true },
+    });
+
+    return res.json(cart);
+  } catch (error) {
+    console.error("Get cart failed:", error);
+    return res.status(500).json({ error: "Failed to fetch cart" });
+  }
 };
+
 export const addToCart = async (req: Request, res: Response) => {
   const { productId, quantity, userToken } = req.body;
 
-  const userCart = await prisma.cart.upsert({
-    where: { sessionId: userToken },
-    update: {},
-    create: { sessionId: userToken },
-  });
-  const cartItem = await prisma.cartItem.upsert({
-    where: {
-      cartId_productId: {
+  if (!productId || typeof quantity !== "number" || quantity <= 0 || !userToken) {
+    return res.status(400).json({
+      error: "productId, valid positive quantity, and userToken are required",
+    });
+  }
+
+  try {
+    const product = await prisma.product.findUnique({
+      where: { id: productId },
+    });
+
+    if (!product) {
+      return res.status(404).json({ error: "Product not found" });
+    }
+
+    const userCart = await prisma.cart.upsert({
+      where: { sessionId: userToken },
+      update: {},
+      create: { sessionId: userToken },
+    });
+
+    const cartItem = await prisma.cartItem.upsert({
+      where: {
+        cartId_productId: {
+          cartId: userCart.id,
+          productId,
+        },
+      },
+      update: {
+        quantity: {
+          increment: quantity,
+        },
+      },
+      create: {
         cartId: userCart.id,
-        productId,
+        productId: productId,
+        quantity,
       },
-    },
-    update: {
-      quantity: {
-        increment: quantity,
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        cartItem,
       },
-    },
-    create: {
-      cartId: userCart.id,
-      productId: productId,
-      quantity,
-    },
-  });
-  return res.status(200).json({
-    success: true,
-    data: {
-      cartItem,
-    },
-  });
+    });
+  } catch (error) {
+    console.error("Add to cart failed:", error);
+    return res.status(500).json({ error: "Failed to add item to cart" });
+  }
 };
+
 export const updateCart = async (req: Request, res: Response) => {
   const { productId, quantity, userToken } = req.body;
 
+  if (!productId || typeof quantity !== "number" || !userToken) {
+    return res.status(400).json({
+      error: "productId, quantity, and userToken are required",
+    });
+  }
+
   try {
-    // 1. Find the parent Cart ID using the session token
+    // 1. Find parent Cart using session token
     const cart = await prisma.cart.findUnique({
       where: { sessionId: userToken },
     });
@@ -82,51 +122,81 @@ export const updateCart = async (req: Request, res: Response) => {
         },
       },
       data: {
-        quantity: quantity, // Overwrites the old quantity with the exact new one
+        quantity: quantity,
       },
     });
 
     return res.status(200).json({ success: true, data: updatedItem });
-
   } catch (error) {
-    // Prisma throws an error if you try to update/delete a record that doesn't exist
     console.error("Cart update failed:", error);
     return res.status(500).json({ error: "Failed to update cart item" });
   }
 };
+
 export const checkout = async (req: Request, res: Response) => {
   const { userToken, email } = req.body;
 
-  // 1. Fetch EVERYTHING in one single query (Cart, Items, and Products)
-  const cart = await prisma.cart.findUnique({
-    where: { sessionId: userToken },
-    include: {
-      items: {
-        include: { product: true },
-      },
-    },
-  });
-
-  if (!cart || cart.items.length === 0) {
-    return res.status(400).json({ error: "Cart is empty" });
-  }
-
-  let totalAmount: number = 0;
-
-  // 2. Validate stock and calculate total entirely in memory (no DB calls)
-  for (const item of cart.items) {
-    if (item.product.stockQuantity < item.quantity) {
-      return res.status(400).json({ 
-        error: `Not enough stock for ${item.product.name}. Only ${item.product.stockQuantity} left.` 
-      });
-    }
-    const amount = Number(item.product.price) * item.quantity;
-    totalAmount += amount;
+  if (!userToken || !email) {
+    return res.status(400).json({ error: "userToken and email are required" });
   }
 
   try {
     const finalOrder = await prisma.$transaction(async (tx) => {
-      // 3. Create the Order
+      // 1. Fetch the cart inside transaction
+      const cart = await tx.cart.findUnique({
+        where: { sessionId: userToken },
+        include: {
+          items: {
+            include: { product: true },
+          },
+        },
+      });
+
+      if (!cart || cart.items.length === 0) {
+        throw new Error("CART_EMPTY");
+      }
+
+      // 2. Sort product IDs alphabetically to eliminate PostgreSQL deadlocks
+      const sortedProductIds = Array.from(
+        new Set(cart.items.map((item) => item.productId))
+      ).sort();
+
+      // 3. Atomically lock product rows with SELECT ... FOR UPDATE in sorted order
+      interface LockedProductRow {
+        id: string;
+        name: string;
+        price: any;
+        stockQuantity: number;
+      }
+
+      const lockedProducts = await tx.$queryRaw<LockedProductRow[]>`
+        SELECT "id", "name", "price", "stockQuantity"
+        FROM "Product"
+        WHERE "id" IN (${Prisma.join(sortedProductIds)})
+        ORDER BY "id" ASC
+        FOR UPDATE
+      `;
+
+      const productMap = new Map<string, LockedProductRow>(
+        lockedProducts.map((p) => [p.id, p])
+      );
+
+      // 4. Validate stock against the locked records and calculate total
+      let totalAmount = 0;
+
+      for (const item of cart.items) {
+        const product = productMap.get(item.productId);
+
+        if (!product || product.stockQuantity < item.quantity) {
+          throw new Error(
+            `INSUFFICIENT_STOCK:${product ? product.name : item.product.name}:${product ? product.stockQuantity : 0}`
+          );
+        }
+
+        totalAmount += Number(product.price) * item.quantity;
+      }
+
+      // 5. Create Order
       const order = await tx.order.create({
         data: {
           sessionId: userToken,
@@ -136,19 +206,22 @@ export const checkout = async (req: Request, res: Response) => {
         },
       });
 
-      // 4. Map the items we already fetched into OrderItems
-      const orderItemsData = cart.items.map((item) => ({
-        orderId: order.id,
-        productId: item.productId,
-        quantity: item.quantity,
-        priceAtPurchase: item.product.price,
-      }));
+      // 6. Map and insert OrderItems
+      const orderItemsData = cart.items.map((item) => {
+        const product = productMap.get(item.productId);
+        return {
+          orderId: order.id,
+          productId: item.productId,
+          quantity: item.quantity,
+          priceAtPurchase: product ? product.price : item.product.price,
+        };
+      });
 
       await tx.orderItem.createMany({
         data: orderItemsData,
       });
 
-      // 5. Deduct the inventory
+      // 7. Deduct inventory atomically
       for (const item of cart.items) {
         await tx.product.update({
           where: { id: item.productId },
@@ -157,7 +230,8 @@ export const checkout = async (req: Request, res: Response) => {
           },
         });
       }
-      // 6. Delete the Cart (which cascades and deletes all CartItems)
+
+      // 8. Delete the Cart
       await tx.cart.delete({
         where: { id: cart.id },
       });
@@ -165,13 +239,26 @@ export const checkout = async (req: Request, res: Response) => {
       return order;
     });
 
-    res.status(200).json({
-      success:"true",
+    return res.status(200).json({
+      success: true,
       orderid: finalOrder.id,
       order: finalOrder,
     });
   } catch (error) {
     console.error("Checkout failed:", error);
-    res.status(500).json({ error: "Checkout processing failed" });
+
+    if (error instanceof Error) {
+      if (error.message === "CART_EMPTY") {
+        return res.status(400).json({ error: "Cart is empty" });
+      }
+      if (error.message.startsWith("INSUFFICIENT_STOCK:")) {
+        const [, productName, stockQuantity] = error.message.split(":");
+        return res.status(400).json({
+          error: `Not enough stock for ${productName}. Only ${stockQuantity} left.`,
+        });
+      }
+    }
+
+    return res.status(500).json({ error: "Checkout processing failed" });
   }
 };
