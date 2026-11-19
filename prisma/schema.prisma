@@ -17,12 +17,19 @@ model Product {
   name          String
   price         Decimal     @db.Decimal(10, 2)
   stockQuantity Int
+  category  Category @default(HEADPHONE)
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
   // Relations
   cartItems     CartItem[]
   orderItems    OrderItem[]
+}
+
+enum Category{
+  HEADPHONE
+  EARPHONE
+  SPEAKER
 }
 
 model Cart {
