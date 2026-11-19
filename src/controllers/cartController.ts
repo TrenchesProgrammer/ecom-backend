@@ -1,6 +1,5 @@
 import { Request, Response } from "express";
 import { prisma } from "../config/db";
-import { Prisma } from "../generated/prisma/client";
 
 export const getCart = async (req: Request, res: Response) => {
   const { userToken } = req.body;
@@ -172,7 +171,7 @@ export const checkout = async (req: Request, res: Response) => {
       const lockedProducts = await tx.$queryRaw<LockedProductRow[]>`
         SELECT "id", "name", "price", "stockQuantity"
         FROM "Product"
-        WHERE "id" IN (${Prisma.join(sortedProductIds)})
+        WHERE "id" = ANY(${sortedProductIds})
         ORDER BY "id" ASC
         FOR UPDATE
       `;
