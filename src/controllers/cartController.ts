@@ -140,7 +140,7 @@ export const checkout = async (req: Request, res: Response) => {
   }
 
   try {
-    const finalOrder = await prisma.$transaction(async (tx) => {
+    const finalOrder = await prisma.$transaction(async (tx: any) => {
       // 1. Fetch the cart inside transaction
       const cart = await tx.cart.findUnique({
         where: { sessionId: userToken },
@@ -157,7 +157,7 @@ export const checkout = async (req: Request, res: Response) => {
 
       // 2. Sort product IDs alphabetically to eliminate PostgreSQL deadlocks
       const sortedProductIds = Array.from(
-        new Set(cart.items.map((item) => item.productId))
+        new Set(cart.items.map((item: any) => item.productId))
       ).sort();
 
       // 3. Atomically lock product rows with SELECT ... FOR UPDATE in sorted order
@@ -177,13 +177,13 @@ export const checkout = async (req: Request, res: Response) => {
       `;
 
       const productMap = new Map<string, LockedProductRow>(
-        lockedProducts.map((p) => [p.id, p])
+        lockedProducts.map((p: LockedProductRow) => [p.id, p])
       );
 
       // 4. Validate stock against the locked records and calculate total
       let totalAmount = 0;
 
-      for (const item of cart.items) {
+      for (const item of cart.items as any[]) {
         const product = productMap.get(item.productId);
 
         if (!product || product.stockQuantity < item.quantity) {
@@ -206,7 +206,7 @@ export const checkout = async (req: Request, res: Response) => {
       });
 
       // 6. Map and insert OrderItems
-      const orderItemsData = cart.items.map((item) => {
+      const orderItemsData = cart.items.map((item: any) => {
         const product = productMap.get(item.productId);
         return {
           orderId: order.id,
@@ -221,7 +221,7 @@ export const checkout = async (req: Request, res: Response) => {
       });
 
       // 7. Deduct inventory atomically
-      for (const item of cart.items) {
+      for (const item of cart.items as any[]) {
         await tx.product.update({
           where: { id: item.productId },
           data: {
