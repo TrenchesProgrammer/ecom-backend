@@ -3,9 +3,18 @@ import express from "express";
 import productRoute from "./routes/productRoutes";
 import cartRoute from "./routes/cartRoutes";
 
+// Load the CommonJS package without an ES module declaration.
+const cors = require("cors");
+
 const app = express();
 const PORT = process.env.PORT || "4040";
+const corsOptions = {
+  origin: 'http://localhost:3000', // Replace with your frontend URL
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  credentials: true, // Required if sending cookies or authorization headers
+};
 
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // Routes
