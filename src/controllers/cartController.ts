@@ -144,7 +144,7 @@ export const checkout = async (req: Request, res: Response) => {
 
   try {
     const finalOrder = await prisma.$transaction(async (tx: any) => {
-      // 1. Fetch the cart inside transaction
+    
       const cart = await tx.cart.findUnique({
         where: { sessionId: userToken },
         include: {
@@ -158,12 +158,10 @@ export const checkout = async (req: Request, res: Response) => {
         throw new Error("CART_EMPTY");
       }
 
-      // 2. Sort product IDs alphabetically to eliminate PostgreSQL deadlocks
+    
       const sortedProductIds = Array.from(
         new Set(cart.items.map((item: any) => item.productId))
       ).sort();
-
-      // 3. Atomically lock product rows with SELECT ... FOR UPDATE in sorted order
       interface LockedProductRow {
         id: string;
         name: string;
@@ -223,7 +221,7 @@ export const checkout = async (req: Request, res: Response) => {
         data: orderItemsData,
       });
 
-      // 7. Deduct inventory atomically
+   
       for (const item of cart.items as any[]) {
         await tx.product.update({
           where: { id: item.productId },
@@ -233,7 +231,7 @@ export const checkout = async (req: Request, res: Response) => {
         });
       }
 
-      // 8. Delete the Cart
+     
       await tx.cart.delete({
         where: { id: cart.id },
       });
