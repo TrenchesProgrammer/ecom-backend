@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import { prisma } from "../config/db";
 
 export const getCart = async (req: Request, res: Response) => {
-  const { userToken } = req.body;
+  const userToken  = req.get('user-token');
 
   if (!userToken) {
     return res.status(400).json({ error: "userToken is required" });
@@ -26,7 +26,8 @@ export const getCart = async (req: Request, res: Response) => {
 };
 
 export const addToCart = async (req: Request, res: Response) => {
-  const { productId, quantity, userToken } = req.body;
+  const { productId, quantity} = req.body;
+  const userToken  = req.get('user-token');
 
   if (!productId || typeof quantity !== "number" || quantity <= 0 || !userToken) {
     return res.status(400).json({
@@ -81,7 +82,8 @@ export const addToCart = async (req: Request, res: Response) => {
 };
 
 export const updateCart = async (req: Request, res: Response) => {
-  const { productId, quantity, userToken } = req.body;
+  const { productId, quantity } = req.body;
+  const userToken  = req.get('user-token');
 
   if (!productId || typeof quantity !== "number" || !userToken) {
     return res.status(400).json({
@@ -133,7 +135,8 @@ export const updateCart = async (req: Request, res: Response) => {
 };
 
 export const checkout = async (req: Request, res: Response) => {
-  const { userToken, email } = req.body;
+  const { email } = req.body;
+  const userToken  = req.get('user-token');
 
   if (!userToken || !email) {
     return res.status(400).json({ error: "userToken and email are required" });
