@@ -41,7 +41,7 @@ export const idempotency = () => async (req: Request, res: Response, next: NextF
           redisKey,
           JSON.stringify({ status: "COMPLETED", statusCode: res.statusCode, body }),
           "EX",
-          86400
+          86400 
         )
         .catch(console.error);
     }
