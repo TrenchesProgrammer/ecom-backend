@@ -9,7 +9,7 @@ const cors = require("cors");
 const app = express();
 const PORT = process.env.PORT || "4040";
 const corsOptions = {
-  origin: 'https://audiophile-ecom-six.vercel.app/', // Replace with your frontend URL
+  origin: 'https://audiophile-ecom-six.vercel.app', // Replace with your frontend URL
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   credentials: true, // Required if sending cookies or authorization headers
 };
